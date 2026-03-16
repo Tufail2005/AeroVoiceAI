@@ -1,0 +1,50 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# ----------------------------------------------------------------------------
+# Dependencies (Removed leading slash to catch nested frontend/backend folders)
+# ----------------------------------------------------------------------------
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# ----------------------------------------------------------------------------
+# Environment Variables (Ignored globally)
+# ----------------------------------------------------------------------------
+.env
+.env.*
+!.env.example # It's good practice to commit an example env file!
+
+# ----------------------------------------------------------------------------
+# Frontend (Next.js)
+# ----------------------------------------------------------------------------
+.next/
+out/
+.vercel/
+next-env.d.ts
+
+# ----------------------------------------------------------------------------
+# Backend (Node.js/TypeScript) & General Build Outputs
+# ----------------------------------------------------------------------------
+build/
+dist/
+*.tsbuildinfo
+
+# ----------------------------------------------------------------------------
+# Testing & Debug
+# ----------------------------------------------------------------------------
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ----------------------------------------------------------------------------
+# Misc OS Files
+# ----------------------------------------------------------------------------
+.DS_Store
+*.pem
