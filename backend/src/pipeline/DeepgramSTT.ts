@@ -16,7 +16,7 @@ export class DeepgramSTT implements STTEngine {
       const live = await this.deepgram.listen.v1.connect({
         Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`, // Deepgram v5 strictly requires the Authorization property here for WebSockets
         model: "nova-3", // Deepgram's latest model!
-        language: "en-US",
+        language: "en-IN",
         smart_format: "true",
         encoding: "linear16", // WebRTC raw PCM format
         sample_rate: 48000, // LiveKit default sample rate
