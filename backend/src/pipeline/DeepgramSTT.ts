@@ -22,59 +22,68 @@ export class DeepgramSTT implements STTEngine {
         sample_rate: 48000, // LiveKit default sample rate
         channels: 1, // Mono audio
         interim_results: "true", // Get words as they are spoken
+        endpointing: 500, // Tells Deepgram to wait 500ms before sending is_final
+        utterance_end_ms: 1000, // Tells Deepgram to fire an "UtteranceEnd" event after 1000ms of silence
       });
 
-      let finalTranscript = "";
+      // We need a variable to accumulate the pieces
+      let currentUtterance = "";
 
-      // v5 Events: Standard string literals instead of LiveTranscriptionEvents
       live.on("open", async () => {
         console.log("🔌 Deepgram WebSocket connected. Listening...");
-
         try {
-          // Pump the LiveKit audio frames directly into the Deepgram socket
           for await (const frame of audioStream) {
-            // v5 requires addressing the socket to send raw buffer data
-            if (live.socket) {
-              live.socket.send(frame.data);
-            }
+            if (live.socket) live.socket.send(frame.data);
           }
-          // If the stream breaks/ends, close the connection
           if (live.socket) live.socket.close();
         } catch (err) {
-          console.error("Error piping audio to Deepgram:", err);
           reject(err);
         }
       });
 
-      // Handle incoming transcriptions in real-time
       live.on("message", (data: any) => {
-        // v5 requires manually checking if the message is a "Results" payload
+        // Handle the text chunks
         if (data.type === "Results") {
           const words = data.channel.alternatives[0].transcript;
 
           if (words) {
-            // interim_results gives us the real-time "typing" effect
             if (data.is_final) {
-              finalTranscript += words + " ";
-              console.log(`\n✅ Finalized Segment: "${words}"`);
+              // Append the chunk to our running sentence
+              currentUtterance += words + " ";
+              console.log(`\n🧩 Chunk locked: "${words}"`);
             } else {
-              process.stdout.write(`\r🗣️ Hearing: "${words}"`);
+              process.stdout.write(
+                `\r🗣️ Hearing: "${currentUtterance}${words}"`
+              );
             }
+          }
+        }
+
+        // Listen for the silence trigger!
+        if (data.type === "UtteranceEnd") {
+          if (currentUtterance.trim().length > 0) {
+            console.log(
+              `\n✅ Full User Turn Detected: "${currentUtterance.trim()}"`
+            );
+
+            // For now, we will resolve the promise with the full sentence so the LLM can trigger
+            // (Note: In Milestone 4, we will change this to emit an event so the socket stays open)
+            resolve(currentUtterance.trim());
+
+            // Reset the accumulator for the next time they speak
+            currentUtterance = "";
           }
         }
       });
 
       live.on("close", () => {
-        console.log("\n🔌 Deepgram connection closed.");
-        resolve(finalTranscript.trim());
+        resolve(currentUtterance.trim());
       });
 
       live.on("error", (err: any) => {
-        console.error("Deepgram error:", err);
         reject(err);
       });
 
-      // In v5, we must explicitly tell the client to connect and wait
       live.connect();
       await live.waitForOpen();
     });
