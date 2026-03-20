@@ -13,6 +13,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@deepgram/sdk": "^5.0.0",
     "@livekit/rtc-node": "^0.13.24",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",

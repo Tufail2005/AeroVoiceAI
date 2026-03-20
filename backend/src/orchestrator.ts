@@ -14,18 +14,14 @@ import {
 import { AccessToken } from "livekit-server-sdk";
 import dotenv from "dotenv";
 
-// 1. INITIALIZATION: Load credentials from .env file
+// INITIALIZATION: Load credentials from .env file
 dotenv.config();
 
 async function startOrchestrator() {
   // Initialize the Room object which represents the WebRTC session
   const room = new Room();
 
-  /**
-   * EVENT LISTENER: TrackSubscribed
-   * This triggers whenever the backend successfully starts receiving
-   * a media track (audio/video) from another participant.
-   */
+  //  EVENT LISTENER
   room.on(
     RoomEvent.TrackSubscribed,
     async (
@@ -33,7 +29,7 @@ async function startOrchestrator() {
       publication: RemoteTrackPublication,
       participant: RemoteParticipant
     ) => {
-      // We only care about Audio tracks for an Echo test
+      // We only care about Audio tracks
       if (track.kind === TrackKind.KIND_AUDIO) {
         console.log(
           `🎧 Subscribed to audio from ${participant.identity}. Starting Echo Test...`
@@ -50,7 +46,7 @@ async function startOrchestrator() {
           audioSource
         );
 
-        // PUBLISH: Make the echo track visible/audible to others in the room
+        // PUBLISH: Make the echo track audible to others in the room
         if (room.localParticipant) {
           const options = new TrackPublishOptions();
           options.source = TrackSource.SOURCE_MICROPHONE;
