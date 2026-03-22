@@ -12,29 +12,24 @@ import dotenv from "dotenv";
 
 import { DeepgramSTT } from "./pipeline/DeepgramSTT.js";
 import { GroqLLM } from "./pipeline/GroqLLM.js";
-import { type Message } from "./pipeline/AgentRouter.js";
+import type { Message } from "./pipeline/AgentRouter.js";
 
-// INITIALIZATION: Load credentials from .env file
 dotenv.config();
 
-// Define the initial system prompt to give your bot a personality
-const conversationHistory: Message[] = [
-  {
-    role: "system",
-    content:
-      "You are AeroVoice, a highly helpful, concise, and friendly AI voice assistant. Keep your responses short and natural for spoken conversation.",
-  },
-];
-
 async function startOrchestrator() {
-  // Initialize the Room object which represents the WebRTC session
   const room = new Room();
-
-  // Initialize our engines
   const sttEngine = new DeepgramSTT();
-  const llmEngine = new GroqLLM();
+  const llmEngine = new GroqLLM(); // 🧠 Instantiate the Brain
 
-  //  EVENT LISTENER
+  // System prompt to constrain the AI's behavior
+  const conversationHistory: Message[] = [
+    {
+      role: "system",
+      content:
+        "You are Aero, a highly capable, concise AI assistant. Keep all responses under 2 sentences to ensure fast voice playback.",
+    },
+  ];
+
   room.on(
     RoomEvent.TrackSubscribed,
     async (
@@ -42,46 +37,48 @@ async function startOrchestrator() {
       publication: RemoteTrackPublication,
       participant: RemoteParticipant
     ) => {
-      // We only care about Audio tracks
       if (track.kind === TrackKind.KIND_AUDIO) {
         console.log(
           `🎧 Subscribed to audio from ${participant.identity}. Hooking up Deepgram...`
         );
 
-        // INGRESS: Create a stream to read raw PCM audio data
         const audioStream = new AudioStream(track);
+        let isProcessingTurn = false; // Prevents the AI from listening to itself or background noise while talking
 
-        try {
-          // EAR: Pass the live stream to STT Engine and wait for the user to finish speaking
-          const userText = await sttEngine.transcribe(audioStream);
-          console.log(`\n📜 User said: ${userText}`);
+        // 1. Start listening continuously
+        sttEngine.startListening(audioStream);
 
-          // Append user's speech to the history
-          conversationHistory.push({ role: "user", content: userText });
+        // 2. When the user finishes a sentence, trigger the Brain
+        sttEngine.on("transcriptReady", async (userTranscript: string) => {
+          if (isProcessingTurn) return;
+          isProcessingTurn = true;
 
-          console.log("🤔 Sending to Groq...");
+          // Save what the user said to memory
+          conversationHistory.push({ role: "user", content: userTranscript });
 
-          // BRAIN: Call the LLM and get the streaming response
-          const responseStream = llmEngine.generate(conversationHistory);
+          process.stdout.write("🤖 Aero says: ");
+          let fullAiResponse = "";
 
-          let fullAssistantResponse = "";
-          process.stdout.write("🤖 AeroVoice: ");
+          try {
+            // 3. Consume the AsyncIterable stream as tokens arrive from Groq
+            for await (const token of llmEngine.generate(conversationHistory)) {
+              process.stdout.write(token); // Print token instantly to the console
+              fullAiResponse += token;
+            }
+            console.log("\n"); // Cap off the sentence in the console
 
-          // Consume the async generator as tokens arrive for that "typing" effect
-          for await (const token of responseStream) {
-            process.stdout.write(token);
-            fullAssistantResponse += token;
+            // Save the AI's final response to memory
+            conversationHistory.push({
+              role: "assistant",
+              content: fullAiResponse,
+            });
+          } catch (error) {
+            console.error("LLM Error:", error);
+          } finally {
+            console.log("\n👂 Ear is active. Waiting for you to speak...");
+            isProcessingTurn = false; // Unlock for the next turn
           }
-          console.log("\n"); // Print a new line when the bot finishes
-
-          // Append the bot's final response back to the history so it remembers the context
-          conversationHistory.push({
-            role: "assistant",
-            content: fullAssistantResponse,
-          });
-        } catch (error) {
-          console.error("pipeline failed:", error);
-        }
+        });
       }
     }
   );

@@ -7,9 +7,8 @@ export interface Message {
 // The Ear (Speech-To-Text)
 // Must accept raw PCM audio frames from LiveKit and return a finalized text transcript.
 export interface STTEngine {
-  // Note: We will eventually use WebSockets for real-time STT,
-  // but the interface simply promises to return the spoken string
-  transcribe(audioStream: AsyncIterable<any>): Promise<string>;
+  startListening(audioStream: AsyncIterable<any>): void;
+  on(event: string, listener: (...args: any[]) => void): this;
 }
 
 // The Brain (Language Model)
