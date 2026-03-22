@@ -16,7 +16,7 @@ export class GroqLLM implements LLMEngine {
     console.log("🧠 Brain thinking...");
 
     const stream = await this.client.chat.completions.create({
-      model: "llama3-8b-8192", // Groq's identifier for Llama 3 8B
+      model: "llama-3.1-8b-instant", // Groq's identifier for Llama 3 8B
       messages: history,
       stream: true, // This must be true for low latency!
       temperature: 0.5, // Keep it relatively deterministic
@@ -26,7 +26,6 @@ export class GroqLLM implements LLMEngine {
     for await (const chunk of stream) {
       // Safely extract the token from the stream chunk
       const token = chunk.choices[0]?.delta?.content || "";
-
       if (token) {
         // Yield pushes the token down the pipeline instantly
         yield token;

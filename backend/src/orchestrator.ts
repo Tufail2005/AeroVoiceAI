@@ -11,14 +11,28 @@ import { AccessToken } from "livekit-server-sdk";
 import dotenv from "dotenv";
 
 import { DeepgramSTT } from "./pipeline/DeepgramSTT.js";
+import { GroqLLM } from "./pipeline/GroqLLM.js";
+import { type Message } from "./pipeline/AgentRouter.js";
 
 // INITIALIZATION: Load credentials from .env file
 dotenv.config();
 
+// Define the initial system prompt to give your bot a personality
+const conversationHistory: Message[] = [
+  {
+    role: "system",
+    content:
+      "You are AeroVoice, a highly helpful, concise, and friendly AI voice assistant. Keep your responses short and natural for spoken conversation.",
+  },
+];
+
 async function startOrchestrator() {
   // Initialize the Room object which represents the WebRTC session
   const room = new Room();
+
+  // Initialize our engines
   const sttEngine = new DeepgramSTT();
+  const llmEngine = new GroqLLM();
 
   //  EVENT LISTENER
   room.on(
@@ -38,11 +52,35 @@ async function startOrchestrator() {
         const audioStream = new AudioStream(track);
 
         try {
-          // Pass the live stream directly to our STT Engine
-          const fullSessionTranscript = await sttEngine.transcribe(audioStream);
-          console.log(`\n📜 Full Session Transcript: ${fullSessionTranscript}`);
+          // EAR: Pass the live stream to STT Engine and wait for the user to finish speaking
+          const userText = await sttEngine.transcribe(audioStream);
+          console.log(`\n📜 User said: ${userText}`);
+
+          // Append user's speech to the history
+          conversationHistory.push({ role: "user", content: userText });
+
+          console.log("🤔 Sending to Groq...");
+
+          // BRAIN: Call the LLM and get the streaming response
+          const responseStream = llmEngine.generate(conversationHistory);
+
+          let fullAssistantResponse = "";
+          process.stdout.write("🤖 AeroVoice: ");
+
+          // Consume the async generator as tokens arrive for that "typing" effect
+          for await (const token of responseStream) {
+            process.stdout.write(token);
+            fullAssistantResponse += token;
+          }
+          console.log("\n"); // Print a new line when the bot finishes
+
+          // Append the bot's final response back to the history so it remembers the context
+          conversationHistory.push({
+            role: "assistant",
+            content: fullAssistantResponse,
+          });
         } catch (error) {
-          console.error("Transcription pipeline failed:", error);
+          console.error("pipeline failed:", error);
         }
       }
     }
@@ -52,9 +90,8 @@ async function startOrchestrator() {
 
   const apiKey = process.env.LIVEKIT_API_KEY!.trim();
   const apiSecret = process.env.LIVEKIT_API_SECRET!.trim();
-  const livekitUrl = process.env.LIVEKIT_URL!.trim();
 
-  // Generate a JWT (JSON Web Token) using your API Key and Secret
+  // Generate a JWT
   const token = new AccessToken(apiKey, apiSecret, {
     identity: "orchestrator-backend",
     name: "AeroVoiceAI Brain",
