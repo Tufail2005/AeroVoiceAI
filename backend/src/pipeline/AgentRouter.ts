@@ -7,8 +7,8 @@ export interface Message {
 // The Ear (Speech-To-Text)
 // Must accept raw PCM audio frames from LiveKit and return a finalized text transcript.
 export interface STTEngine {
-  // Note: We will eventually use WebSockets for real-time STT, 
-  // but the interface simply promises to return the spoken string.
+  // Note: We will eventually use WebSockets for real-time STT,
+  // but the interface simply promises to return the spoken string
   transcribe(audioStream: AsyncIterable<any>): Promise<string>;
 }
 
@@ -20,7 +20,7 @@ export interface LLMEngine {
 }
 
 // The Voice (Text-To-Speech)
-// Must accept an incoming stream of text (the chunked sentences) 
+// Must accept an incoming stream of text (the chunked sentences)
 // and yield an outgoing stream of raw PCM Audio Buffers for LiveKit.
 export interface TTSEngine {
   synthesize(textStream: AsyncIterable<string>): AsyncIterable<Buffer>;

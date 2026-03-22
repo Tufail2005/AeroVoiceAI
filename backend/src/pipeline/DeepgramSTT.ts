@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 export class DeepgramSTT implements STTEngine {
-  // v5 Initialization: Use DeepgramClient instead of createClient
+  // v5 Initialization
   private deepgram = new DeepgramClient({
     apiKey: process.env.DEEPGRAM_API_KEY,
   });
@@ -33,7 +33,16 @@ export class DeepgramSTT implements STTEngine {
         console.log("🔌 Deepgram WebSocket connected. Listening...");
         try {
           for await (const frame of audioStream) {
-            if (live.socket) live.socket.send(frame.data);
+            if (live.socket) {
+              // CRITICAL FIX: Convert the Int16Array safely into a Buffer.
+              // Respecting the byteOffset prevents memory leaks and corrupted audio.
+              const buffer = Buffer.from(
+                frame.data.buffer,
+                frame.data.byteOffset,
+                frame.data.byteLength
+              );
+              live.socket.send(buffer);
+            }
           }
           if (live.socket) live.socket.close();
         } catch (err) {
