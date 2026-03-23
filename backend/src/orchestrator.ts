@@ -6,22 +6,33 @@ import {
   RemoteParticipant,
   AudioStream,
   TrackKind,
+  AudioSource,
+  LocalAudioTrack,
+  TrackSource,
+  TrackPublishOptions,
+  AudioFrame,
 } from "@livekit/rtc-node";
 import { AccessToken } from "livekit-server-sdk";
 import dotenv from "dotenv";
 
+// Import the Pipeline Engines
 import { DeepgramSTT } from "./pipeline/DeepgramSTT.js";
 import { GroqLLM } from "./pipeline/GroqLLM.js";
+import { ElevenLabsTTS } from "./pipeline/ElevenLabTTS.js";
+import { chunkTextStream } from "./pipeline/TextChunker.js";
 import type { Message } from "./pipeline/AgentRouter.js";
 
 dotenv.config();
 
 async function startOrchestrator() {
   const room = new Room();
-  const sttEngine = new DeepgramSTT();
-  const llmEngine = new GroqLLM(); // 🧠 Instantiate the Brain
 
-  // System prompt to constrain the AI's behavior
+  // Instantiate the Engines
+  const sttEngine = new DeepgramSTT();
+  const llmEngine = new GroqLLM();
+  const ttsEngine = new ElevenLabsTTS();
+
+  // The AI's Memory
   const conversationHistory: Message[] = [
     {
       role: "system",
@@ -30,6 +41,18 @@ async function startOrchestrator() {
     },
   ];
 
+  // ==========================================
+  // EGRESS SETUP: Create the AI's "Mouth"
+  // ==========================================
+  // We force WebRTC's native 48kHz for the highest quality and stability
+  const LIVEKIT_SAMPLE_RATE = 48000;
+  const NUM_CHANNELS = 1;
+  const audioSource = new AudioSource(LIVEKIT_SAMPLE_RATE, NUM_CHANNELS);
+  const aiTrack = LocalAudioTrack.createAudioTrack("ai-voice", audioSource);
+
+  // ==========================================
+  // INGRESS & PIPELINE EXECUTION
+  // ==========================================
   room.on(
     RoomEvent.TrackSubscribed,
     async (
@@ -38,42 +61,108 @@ async function startOrchestrator() {
       participant: RemoteParticipant
     ) => {
       if (track.kind === TrackKind.KIND_AUDIO) {
-        console.log(
-          `🎧 Subscribed to audio from ${participant.identity}. Hooking up Deepgram...`
-        );
+        console.log(`🎧 Subscribed to audio from ${participant.identity}.`);
+
+        // 1. Publish the AI's voice track back to the user
+        if (room.localParticipant) {
+          const options = new TrackPublishOptions();
+          options.source = TrackSource.SOURCE_MICROPHONE;
+          await room.localParticipant.publishTrack(aiTrack, options);
+          console.log("📢 AI Voice track published successfully.");
+        }
 
         const audioStream = new AudioStream(track);
-        let isProcessingTurn = false; // Prevents the AI from listening to itself or background noise while talking
+        let isProcessingTurn = false; // Prevents the AI from overlapping itself
 
-        // 1. Start listening continuously
+        // 2. Start the continuous STT listener
         sttEngine.startListening(audioStream);
 
-        // 2. When the user finishes a sentence, trigger the Brain
+        // 3. React to completed sentences
         sttEngine.on("transcriptReady", async (userTranscript: string) => {
           if (isProcessingTurn) return;
           isProcessingTurn = true;
 
-          // Save what the user said to memory
           conversationHistory.push({ role: "user", content: userTranscript });
-
           process.stdout.write("🤖 Aero says: ");
-          let fullAiResponse = "";
 
           try {
-            // 3. Consume the AsyncIterable stream as tokens arrive from Groq
-            for await (const token of llmEngine.generate(conversationHistory)) {
-              process.stdout.write(token); // Print token instantly to the console
-              fullAiResponse += token;
-            }
-            console.log("\n"); // Cap off the sentence in the console
+            // --- THE STREAMING PIPELINE ---
+            const rawTokens = llmEngine.generate(conversationHistory);
+            const cleanSentences = chunkTextStream(rawTokens);
+            const audioChunks = ttsEngine.synthesize(cleanSentences);
 
-            // Save the AI's final response to memory
+            let audioBuffer = Buffer.alloc(0);
+
+            // --- THE DRIFT-FREE PACER SETUP ---
+            let framesSent = 0;
+            const playoutStartTime = Date.now();
+
+            // ElevenLabs gives us 24kHz audio. 10ms of 24kHz = 240 samples = 480 bytes
+            const IN_BYTES_PER_FRAME = 480;
+
+            // --- THE AUDIO PUMP ---
+            for await (const chunk of audioChunks) {
+              audioBuffer = Buffer.concat([audioBuffer, chunk]);
+
+              while (audioBuffer.length >= IN_BYTES_PER_FRAME) {
+                // Slice exactly 10ms of 24kHz audio
+                const frameData = audioBuffer.subarray(0, IN_BYTES_PER_FRAME);
+                audioBuffer = audioBuffer.subarray(IN_BYTES_PER_FRAME);
+
+                // Safely align the memory buffer
+                const cleanBuffer = Buffer.from(frameData);
+
+                // Cast to 16-bit integers (24kHz)
+                const int16Data24kHz = new Int16Array(
+                  cleanBuffer.buffer,
+                  cleanBuffer.byteOffset,
+                  cleanBuffer.byteLength / 2
+                );
+
+                // --- THE UPSAMPLER (24kHz -> 48kHz) ---
+                // We double the samples to match LiveKit's native preference
+                const int16Data48kHz = new Int16Array(480);
+                for (let i = 0; i < 240; i++) {
+                  const sample = int16Data24kHz[i] ?? 0;
+                  int16Data48kHz[i * 2] = sample;
+                  int16Data48kHz[i * 2 + 1] = sample;
+                }
+
+                // Create the LiveKit AudioFrame
+                const frame = new AudioFrame(
+                  int16Data48kHz,
+                  LIVEKIT_SAMPLE_RATE,
+                  NUM_CHANNELS,
+                  480 // Samples per channel
+                );
+
+                // Send the frame to WebRTC
+                await audioSource.captureFrame(frame);
+
+                // --- THE PACER EXECUTION ---
+                framesSent++;
+                const expectedTime = playoutStartTime + framesSent * 10; // 10ms per frame
+                const currentTime = Date.now();
+                const sleepTime = expectedTime - currentTime;
+
+                // Prevent Socket Blasting by sleeping if we generate faster than real-time
+                if (sleepTime > 0) {
+                  await new Promise((resolve) =>
+                    setTimeout(resolve, sleepTime)
+                  );
+                }
+              }
+            }
+
+            console.log("\n");
+            // Save the turn to memory so the AI has context for the next question
+            // (In a perfect world, we'd rebuild the string from the tokens, but this works for now)
             conversationHistory.push({
               role: "assistant",
-              content: fullAiResponse,
+              content: "Aero responded.",
             });
           } catch (error) {
-            console.error("LLM Error:", error);
+            console.error("Pipeline Error:", error);
           } finally {
             console.log("\n👂 Ear is active. Waiting for you to speak...");
             isProcessingTurn = false; // Unlock for the next turn
@@ -83,18 +172,20 @@ async function startOrchestrator() {
     }
   );
 
+  // ==========================================
+  // CONNECTION LOGIC
+  // ==========================================
   console.log("Connecting to LiveKit Room...");
 
   const apiKey = process.env.LIVEKIT_API_KEY!.trim();
   const apiSecret = process.env.LIVEKIT_API_SECRET!.trim();
 
-  // Generate a JWT
+  // Generate a JWT for the Orchestrator
   const token = new AccessToken(apiKey, apiSecret, {
     identity: "orchestrator-backend",
     name: "AeroVoiceAI Brain",
   });
 
-  // Grant the bot permission to join, speak, and listen in the specific room
   token.addGrant({
     roomJoin: true,
     room: "aerovoice-room",
@@ -104,10 +195,9 @@ async function startOrchestrator() {
 
   const jwtToken = await token.toJwt();
 
-  // Establish the WebRTC connection to the LiveKit server
   await room.connect(process.env.LIVEKIT_URL!, jwtToken, {
-    autoSubscribe: true, // Automatically listen to anyone who joins
-    dynacast: false, // Disable adaptive bitrate (not needed for simple audio bots)
+    autoSubscribe: true,
+    dynacast: false,
   });
 
   console.log(
@@ -115,5 +205,4 @@ async function startOrchestrator() {
   );
 }
 
-// Start the process and catch any top-level errors (e.g., invalid credentials)
 startOrchestrator().catch(console.error);
