@@ -24,7 +24,7 @@ export class DeepgramSTT extends EventEmitter implements STTEngine {
       sample_rate: 48000, // LiveKit default sample rate
       channels: 1, // Mono audio
       interim_results: "true", // Get words as they are spoken
-      endpointing: "500", // Passed as strings for TypeScript ConnectArgs
+      endpointing: "300", // Passed as strings for TypeScript ConnectArgs
       utterance_end_ms: "1000",
     });
 
@@ -89,7 +89,14 @@ export class DeepgramSTT extends EventEmitter implements STTEngine {
     });
 
     // Connect the socket explicitly (Required in v5)
-    live.connect();
-    await live.waitForOpen();
+    try {
+      live.connect();
+      await live.waitForOpen();
+    } catch (err) {
+      console.error(
+        "❌ Failed to open Deepgram WebSocket. Check your config values:",
+        err
+      );
+    }
   }
 }

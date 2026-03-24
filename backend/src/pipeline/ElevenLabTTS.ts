@@ -10,7 +10,7 @@ export class ElevenLabsTTS implements TTSEngine {
 
       // We use ElevenLabs Turbo v2.5 for the lowest possible latency
       const response = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/nnXuYFuNYxOVBhSu0dbM/stream?output_format=pcm_24000`,
+        `https://api.elevenlabs.io/v1/text-to-speech/nnXuYFuNYxOVBhSu0dbM/stream?output_format=pcm_24000&optimize_streaming_latency=3`,
         {
           method: "POST",
           headers: {
