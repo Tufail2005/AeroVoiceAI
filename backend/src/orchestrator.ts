@@ -75,33 +75,45 @@ async function startOrchestrator() {
       if (track.kind === TrackKind.KIND_AUDIO) {
         console.log(`🎧 Subscribed to audio from ${participant.identity}.`);
 
-        // 1. Publish the AI's voice track back to the user
+        // Publish the AI's voice track back to the user
+        //Checks if the AI bot is fully connected to the room.
         if (room.localParticipant) {
+          //Tells LiveKit to treat the AI's artificial audio track as if it were a standard human microphone
           const options = new TrackPublishOptions();
           options.source = TrackSource.SOURCE_MICROPHONE;
-          await room.localParticipant.publishTrack(aiTrack, options);
+          await room.localParticipant.publishTrack(aiTrack, options); //The bot immediately publishes its own "ai-voice" track back to the room so the human can hear it.
           console.log("📢 AI Voice track published successfully.");
         }
 
-        const audioStream = new AudioStream(track);
-        let isProcessingTurn = false; // Prevents the AI from overlapping itself
+        // ======================================
+        //                  STT
+        // ======================================
+        const audioStream = new AudioStream(track); //Grabs the live audio feed coming from the human's mic.
+        let isProcessingTurn = false; // Prevents the AI from try to answer a new question while it's still talking.
 
-        // 2. Start the continuous STT listener
+        // Start the continuous STT listener
         sttEngine.startListening(audioStream);
 
-        // 3. React to completed sentences
+        // React to completed sentences after deepgram code emit give green signal
         sttEngine.on("transcriptReady", async (userTranscript: string) => {
           if (isProcessingTurn) return;
           isProcessingTurn = true;
 
           conversationHistory.push({ role: "user", content: userTranscript });
-          process.stdout.write("🤖 Aero says: ");
+          process.stdout.write("🤖 Aero says: "); //printing text to terminal
 
           try {
+            // ==============================
+            //         core "brain"
             // --- THE STREAMING PIPELINE ---
+            // ==============================
             const rawTokens = llmEngine.generate(conversationHistory);
             const cleanSentences = chunkTextStream(rawTokens);
             const audioChunks = ttsEngine.synthesize(cleanSentences);
+
+            // ==========================================
+            //             Audio Engine
+            // ==========================================
 
             let audioBuffer = Buffer.alloc(0);
 
@@ -109,7 +121,11 @@ async function startOrchestrator() {
             let framesSent = 0;
             const playoutStartTime = Date.now();
 
-            // ElevenLabs gives us 24kHz audio. 10ms of 24kHz = 240 samples = 480 bytes
+            /*   The Math: ElevenLabs sends audio at a sample rate of 24,000 samples per second (24kHz). We want to process audio in exactly 10-millisecond chunks.
+              10ms of 24,000 samples = 240 samples.
+              Because it is 16-bit audio, every sample takes up 2 bytes.
+              240 samples × 2 bytes = 480 bytes.
+           */
             const IN_BYTES_PER_FRAME = 480;
 
             // --- THE AUDIO PUMP ---

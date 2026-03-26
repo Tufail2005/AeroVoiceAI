@@ -1,21 +1,14 @@
-// Import the Express framework to create our web server
 import express from "express";
-// Import the AccessToken class from LiveKit's server SDK to handle token generation
-import { AccessToken } from "livekit-server-sdk";
-// Import dotenv to load secure environment variables from a .env file
+
+import { AccessToken } from "livekit-server-sdk"; // Import to handle token generation
 import dotenv from "dotenv";
-// Import CORS middleware to allow our frontend application to communicate with this backend
 import cors from "cors";
 
-// Parse the .env file and load the variables into process.env
-dotenv.config();
+dotenv.config(); // Parse the .env file
 
-// Initialize the Express application instance
 const app = express();
-// Apply the CORS middleware to all routes so the browser doesn't block requests
 app.use(cors());
 
-// Define a GET route at the URL path "/api/token"
 app.get("/api/token", async (req, res) => {
   // Generate a random username, like "user-482"
   const participantName = `user-${Math.floor(Math.random() * 1000)}`;
@@ -23,7 +16,6 @@ app.get("/api/token", async (req, res) => {
   const roomName = "aerovoice-room";
 
   // Initialize a new LiveKit access token object using credentials from the .env file
-  // and assign the random username as this token's identity
   const at = new AccessToken(
     process.env.LIVEKIT_API_KEY,
     process.env.LIVEKIT_API_SECRET,
@@ -43,5 +35,4 @@ app.get("/api/token", async (req, res) => {
   res.json({ token: jwtToken });
 });
 
-// Start the Express server and have it listen for incoming traffic on port 3001
 app.listen(3001, () => console.log("Token server running on port 3001"));

@@ -13,7 +13,6 @@ export interface STTEngine {
 
 // The Brain (Language Model)
 // MUST return an AsyncIterable. We cannot wait for the full response to generate.
-// We must stream tokens as they arrive to keep latency near zero.
 export interface LLMEngine {
   generate(history: Message[]): AsyncIterable<string>;
 }

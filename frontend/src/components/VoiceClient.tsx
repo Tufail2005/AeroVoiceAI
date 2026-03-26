@@ -38,7 +38,7 @@ export default function VoiceClient() {
   if (token === "") {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-950 text-white font-mono">
-        Initializing Edge Layer...
+        Initializing AeroVoiceAI...
       </div>
     );
   }
@@ -47,7 +47,7 @@ export default function VoiceClient() {
   if (!isConnecting) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gray-950 text-white font-mono">
-        <h1 className="text-3xl font-bold mb-4">AeroVoiceAI Edge Layer</h1>
+        <h1 className="text-3xl font-bold mb-4">AeroVoiceAI</h1>
         <p className="text-gray-400 mb-8">
           Ready to connect to the Orchestrator.
         </p>
