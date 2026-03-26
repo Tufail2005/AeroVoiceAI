@@ -1,0 +1,17 @@
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider = "postgresql"
+  extensions = [vector]
+}
+
+model DocumentChunk {
+  id        String   @id @default(cuid())
+  text      String
+  embedding Unsupported("vector(384)") // all-MiniLM-L6-v2 outputs exactly 384-dimensional vectors
+}
