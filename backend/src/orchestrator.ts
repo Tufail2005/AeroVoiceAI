@@ -22,6 +22,12 @@ import { ElevenLabsTTS } from "./pipeline/ElevenLabTTS.js";
 import { chunkTextStream } from "./pipeline/TextChunker.js";
 import type { Message } from "./pipeline/AgentRouter.js";
 
+// import RAG worker
+import { Worker } from "worker_threads";
+import { Writable } from "stream";
+import { pipeline as streamPipeline } from "stream/promises";
+import { Readable } from "stream";
+
 dotenv.config();
 
 async function startOrchestrator() {
@@ -63,6 +69,46 @@ async function startOrchestrator() {
   const aiTrack = LocalAudioTrack.createAudioTrack("ai-voice", audioSource);
 
   // ==========================================
+  // RAG INITIALIZATION (Worker Thread Setup)
+  // ==========================================
+  console.log("🧠 Spinning up RAG Worker Thread...");
+  // Dynamically determine if we are running the .ts file (dev) or .js file (prod)
+  const isTsEnv = import.meta.url.endsWith(".ts");
+  const workerPath = isTsEnv
+    ? "./pipeline/ragWorker.ts"
+    : "./pipeline/ragWorker.js";
+
+  // If in TS environment, we must explicitly tell the new thread to use the 'tsx' loader
+  const workerOptions = isTsEnv
+    ? { execArgv: ["--experimental-strip-types", "--no-warnings"] }
+    : {};
+
+  console.log("🧠 Spinning up RAG Worker Thread...");
+  const ragWorker = new Worker(
+    new URL(workerPath, import.meta.url),
+    workerOptions
+  );
+
+  // A helper function to wrap the worker message passing in a Promise
+  const queryRagWorker = (
+    text: string
+  ): Promise<{ bestChunk: string; highestScore: number }> => {
+    return new Promise((resolve, reject) => {
+      const onMessage = (msg: any) => {
+        if (msg.type === "RESULT") {
+          ragWorker.off("message", onMessage);
+          resolve({ bestChunk: msg.bestChunk, highestScore: msg.highestScore });
+        } else if (msg.type === "ERROR") {
+          ragWorker.off("message", onMessage);
+          reject(msg.error);
+        }
+      };
+      ragWorker.on("message", onMessage);
+      ragWorker.postMessage({ type: "QUERY", text });
+    });
+  };
+
+  // ==========================================
   // INGRESS & PIPELINE EXECUTION
   // ==========================================
   room.on(
@@ -99,10 +145,30 @@ async function startOrchestrator() {
           if (isProcessingTurn) return;
           isProcessingTurn = true;
 
-          conversationHistory.push({ role: "user", content: userTranscript });
+          // conversationHistory.push({ role: "user", content: userTranscript });
           process.stdout.write("🤖 Aero says: "); //printing text to terminal
 
           try {
+            // ===================================
+            // NON-BLOCKING RAG LOOKUP
+            // ====================================
+            // We pass the text to the Worker. The main loop stays unblocked!
+            const { bestChunk, highestScore } = await queryRagWorker(
+              userTranscript
+            );
+
+            //  Silently inject the knowledge into the LLM context if it's relevant
+            // (A score of 0.3 or higher usually implies a decent semantic match)
+            let promptToSend = userTranscript;
+            if (highestScore > 0.3) {
+              promptToSend = `Use the following context to answer the user if relevant: "${bestChunk}".\n\nUser Question: ${userTranscript}`;
+              console.log(
+                `\n[🔍 RAG Match Found: Score ${highestScore.toFixed(2)}]`
+              );
+            }
+            // Push the contextualized prompt to memory (but we won't speak the hidden context out loud)
+            conversationHistory.push({ role: "user", content: promptToSend });
+
             // ==============================
             //         core "brain"
             // --- THE STREAMING PIPELINE ---
@@ -112,79 +178,72 @@ async function startOrchestrator() {
             const audioChunks = ttsEngine.synthesize(cleanSentences);
 
             // ==========================================
-            //             Audio Engine
+            //          NATIVE BACKPRESSURE SINK
             // ==========================================
 
-            let audioBuffer = Buffer.alloc(0);
-
-            // --- THE DRIFT-FREE PACER SETUP ---
-            let framesSent = 0;
-            const playoutStartTime = Date.now();
-
+            let lingeringBuffer = Buffer.alloc(0);
+            const IN_BYTES_PER_FRAME = 480;
             /*   The Math: ElevenLabs sends audio at a sample rate of 24,000 samples per second (24kHz). We want to process audio in exactly 10-millisecond chunks.
               10ms of 24,000 samples = 240 samples.
               Because it is 16-bit audio, every sample takes up 2 bytes.
               240 samples × 2 bytes = 480 bytes.
            */
-            const IN_BYTES_PER_FRAME = 480;
 
-            // --- THE AUDIO PUMP ---
-            for await (const chunk of audioChunks) {
-              audioBuffer = Buffer.concat([audioBuffer, chunk]);
+            const webrtcSink = new Writable({
+              async write(chunk, encoding, callback) {
+                lingeringBuffer = Buffer.concat([lingeringBuffer, chunk]);
 
-              while (audioBuffer.length >= IN_BYTES_PER_FRAME) {
-                // Slice exactly 10ms of 24kHz audio
-                const frameData = audioBuffer.subarray(0, IN_BYTES_PER_FRAME);
-                audioBuffer = audioBuffer.subarray(IN_BYTES_PER_FRAME);
+                try {
+                  while (lingeringBuffer.length >= IN_BYTES_PER_FRAME) {
+                    const frameData = lingeringBuffer.subarray(
+                      0,
+                      IN_BYTES_PER_FRAME
+                    );
+                    lingeringBuffer =
+                      lingeringBuffer.subarray(IN_BYTES_PER_FRAME);
 
-                // Safely align the memory buffer
-                const cleanBuffer = Buffer.from(frameData);
+                    const cleanBuffer = Buffer.from(frameData);
+                    const int16Data24kHz = new Int16Array(
+                      cleanBuffer.buffer,
+                      cleanBuffer.byteOffset,
+                      cleanBuffer.byteLength / 2
+                    );
 
-                // Cast to 16-bit integers (24kHz)
-                const int16Data24kHz = new Int16Array(
-                  cleanBuffer.buffer,
-                  cleanBuffer.byteOffset,
-                  cleanBuffer.byteLength / 2
-                );
+                    // --- THE UPSAMPLER (24kHz -> 48kHz) ---
+                    const int16Data48kHz = new Int16Array(480);
+                    for (let i = 0; i < 240; i++) {
+                      const sample = int16Data24kHz[i] ?? 0;
+                      int16Data48kHz[i * 2] = sample;
+                      int16Data48kHz[i * 2 + 1] = sample;
+                    }
 
-                // --- THE UPSAMPLER (24kHz -> 48kHz) ---
-                // We double the samples to match LiveKit's native preference
-                const int16Data48kHz = new Int16Array(480);
-                for (let i = 0; i < 240; i++) {
-                  const sample = int16Data24kHz[i] ?? 0;
-                  int16Data48kHz[i * 2] = sample;
-                  int16Data48kHz[i * 2 + 1] = sample;
+                    const frame = new AudioFrame(
+                      int16Data48kHz,
+                      LIVEKIT_SAMPLE_RATE,
+                      NUM_CHANNELS,
+                      480
+                    );
+
+                    // 🔥 By awaiting this, LiveKit applies native backpressure.
+                    // If the socket is full, Node automatically pauses pulling from ElevenLabs!
+                    await audioSource.captureFrame(frame);
+                  }
+
+                  // Tell Node's stream pipeline we are ready for the next audio chunk
+                  callback();
+                } catch (err: any) {
+                  callback(err);
                 }
+              },
+            });
 
-                // Create the LiveKit AudioFrame
-                const frame = new AudioFrame(
-                  int16Data48kHz,
-                  LIVEKIT_SAMPLE_RATE,
-                  NUM_CHANNELS,
-                  480 // Samples per channel
-                );
-
-                // Send the frame to WebRTC
-                await audioSource.captureFrame(frame);
-
-                // --- THE PACER EXECUTION ---
-                framesSent++;
-                const expectedTime = playoutStartTime + framesSent * 10; // 10ms per frame
-                const currentTime = Date.now();
-                const sleepTime = expectedTime - currentTime;
-
-                // Prevent Socket Blasting by sleeping if we generate faster than real-time
-                if (sleepTime > 0) {
-                  await new Promise((resolve) =>
-                    setTimeout(resolve, sleepTime)
-                  );
-                }
-              }
-            }
+            // ==========================================
+            // 4. EXECUTE THE PIPE
+            // ==========================================
+            // Safely push ElevenLabs data into the WebRTC Sink
+            await streamPipeline(Readable.from(audioChunks), webrtcSink);
 
             console.log("\n");
-            // Save the turn to memory so the AI has context for the next question
-            // (In a perfect world, we'd rebuild the string from the tokens, but this works for now)
             conversationHistory.push({
               role: "assistant",
               content: "Aero responded.",
@@ -193,7 +252,7 @@ async function startOrchestrator() {
             console.error("Pipeline Error:", error);
           } finally {
             console.log("\n👂 Ear is active. Waiting for you to speak...");
-            isProcessingTurn = false; // Unlock for the next turn
+            isProcessingTurn = false;
           }
         });
       }

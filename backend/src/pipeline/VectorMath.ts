@@ -1,4 +1,3 @@
-// A pure, synchronous math function to compare two high-dimensional vectors
 export function cosineSimilarity(vecA: number[], vecB: number[]): number {
   let dotProduct = 0;
   let normA = 0;
