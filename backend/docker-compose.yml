@@ -1,0 +1,21 @@
+# docker-compose.yml
+version: "3.8"
+services:
+  # 1. Local LiveKit Server (Replaces LiveKit Cloud)
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --dev # Runs in dev mode with auto-generated keys
+    ports:
+      - "7880:7880" # HTTP / WebSocket (Main API)
+      - "7881:7881" # Webhooks
+      - "7882:7882/udp" # WebRTC UDP traffic
+
+  # 2. Kokoro TTS (Strictly CPU-bound)
+  kokoro-tts:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    ports:
+      - "5050:8000" # Maps host:5050 to container:8000
+    environment:
+      - USE_CPU=true
+    volumes:
+      - ./kokoro_models:/app/models

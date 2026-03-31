@@ -16,11 +16,8 @@ import { AccessToken } from "livekit-server-sdk";
 import dotenv from "dotenv";
 
 // Import the Pipeline Engines
-import { DeepgramSTT } from "./pipeline/DeepgramSTT.js";
-import { GroqLLM } from "./pipeline/GroqLLM.js";
-import { ElevenLabsTTS } from "./pipeline/ElevenLabTTS.js";
 import { chunkTextStream } from "./pipeline/TextChunker.js";
-import type { Message } from "./pipeline/AgentRouter.js";
+import { buildAIPipeline, type Message } from "./pipeline/AgentRouter.js";
 
 // import RAG worker
 import { Worker } from "worker_threads";
@@ -34,9 +31,7 @@ async function startOrchestrator() {
   const room = new Room();
 
   // Instantiate the Engines
-  const sttEngine = new DeepgramSTT();
-  const llmEngine = new GroqLLM();
-  const ttsEngine = new ElevenLabsTTS();
+  const { stt: sttEngine, llm: llmEngine, tts: ttsEngine } = buildAIPipeline();
 
   // The AI's Memory
   const conversationHistory: Message[] = [

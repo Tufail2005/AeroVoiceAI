@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { type LLMEngine, type Message } from "./AgentRouter.js";
+import { type LLMEngine, type Message } from "../AgentRouter.js";
 import dotenv from "dotenv";
 
 dotenv.config();

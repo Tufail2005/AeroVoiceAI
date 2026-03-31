@@ -1,4 +1,13 @@
 // Standardizing the Context
+
+import { DeepgramSTT } from "./cloudEngines/DeepgramSTT.js";
+import { GroqLLM } from "./cloudEngines/GroqLLM.js";
+import { ElevenLabsTTS } from "./cloudEngines/ElevenLabTTS.js";
+
+import { LocalWhisperSTT } from "./LocalEngines/localSTT.js";
+import { LocalLlamaLLM } from "./LocalEngines/localLLM.js";
+import { LocalKokoroTTS } from "./LocalEngines/localTTS.js";
+
 export interface Message {
   role: "user" | "assistant" | "system";
   content: string;
@@ -30,4 +39,25 @@ export interface AIEnginePipeline {
   stt: STTEngine;
   llm: LLMEngine;
   tts: TTSEngine;
+}
+
+// THE ROUTER: Decides which engines to load at startup
+export function buildAIPipeline(): AIEnginePipeline {
+  const mode = process.env.ENGINE_MODE || "CLOUD";
+
+  if (mode === "LOCAL") {
+    console.log("🏎️ Booting in LOCAL Mode (The 4GB Ferrari Pipeline)");
+    return {
+      stt: new LocalWhisperSTT(),
+      llm: new LocalLlamaLLM(),
+      tts: new LocalKokoroTTS(),
+    };
+  }
+
+  console.log("☁️ Booting in CLOUD Mode (The Honda Civic Pipeline)");
+  return {
+    stt: new DeepgramSTT(),
+    llm: new GroqLLM(),
+    tts: new ElevenLabsTTS(),
+  };
 }

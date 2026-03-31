@@ -1,6 +1,6 @@
 import { DeepgramClient } from "@deepgram/sdk";
 import { EventEmitter } from "events";
-import type { STTEngine } from "./AgentRouter.js";
+import type { STTEngine } from "../AgentRouter.js";
 import dotenv from "dotenv";
 
 dotenv.config();

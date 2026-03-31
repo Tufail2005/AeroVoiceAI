@@ -1,4 +1,3 @@
-// backend/scripts/ingest.ts
 import { pipeline } from "@xenova/transformers";
 import * as fs from "fs";
 import { PrismaClient } from "../src/generated/prisma/client.js";

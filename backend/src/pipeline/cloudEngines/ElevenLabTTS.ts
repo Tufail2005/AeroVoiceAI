@@ -1,4 +1,4 @@
-import type { TTSEngine } from "./AgentRouter.js";
+import type { TTSEngine } from "../AgentRouter.js";
 import dotenv from "dotenv";
 
 dotenv.config();
