@@ -16,7 +16,7 @@ export class LocalLlamaLLM implements LLMEngine {
         model: "local-model", // Name doesn't matter for llama-server
         messages: history,
         stream: true,
-        temperature: 0.3, // Lower temp for the smaller 1.7B model to prevent hallucinations
+        temperature: 0.4, // Lower temp for the smaller 1.7B model to prevent hallucinations
         max_tokens: 150,
       });
 

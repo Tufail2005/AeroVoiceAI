@@ -1,6 +1,7 @@
 import asyncio
 import json
 import numpy as np
+import scipy.signal
 from fastapi import FastAPI, WebSocket
 from faster_whisper import WhisperModel
 import io
@@ -39,10 +40,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 # Faster-Whisper expects audio to be at 16000Hz. 
                 # Note: In a production app, you'd use torchaudio or librosa to resample 
                 # the 48kHz LiveKit audio down to 16kHz here before passing to transcribe()
+                audio_16k = scipy.signal.decimate(audio_np, 3)
                 
                 # Transcribe the audio chunk
                 segments, info = model.transcribe(
-                    audio_np, 
+                    audio_16k, 
                     beam_size=1,        # Keep low for speed
                     language="en", 
                     vad_filter=True,    # Crucial: Automatically ignores silence

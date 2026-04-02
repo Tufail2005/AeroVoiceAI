@@ -79,6 +79,7 @@ async function startOrchestrator() {
     : {};
 
   console.log("🧠 Spinning up RAG Worker Thread...");
+
   const ragWorker = new Worker(
     new URL(workerPath, import.meta.url),
     workerOptions
@@ -168,8 +169,19 @@ async function startOrchestrator() {
             //         core "brain"
             // --- THE STREAMING PIPELINE ---
             // ==============================
+
+            let fullLLMResponse = "";
+
+            async function* captureTokens(tokenStream: AsyncIterable<string>) {
+              for await (const token of tokenStream) {
+                fullLLMResponse += token;
+                yield token; // Pass it down the pipe instantly
+              }
+            }
+
             const rawTokens = llmEngine.generate(conversationHistory);
-            const cleanSentences = chunkTextStream(rawTokens);
+            const interceptedTokens = captureTokens(rawTokens);
+            const cleanSentences = chunkTextStream(interceptedTokens);
             const audioChunks = ttsEngine.synthesize(cleanSentences);
 
             // ==========================================
@@ -239,10 +251,13 @@ async function startOrchestrator() {
             await streamPipeline(Readable.from(audioChunks), webrtcSink);
 
             console.log("\n");
-            conversationHistory.push({
-              role: "assistant",
-              content: "Aero responded.",
-            });
+
+            if (fullLLMResponse.trim().length > 0) {
+              conversationHistory.push({
+                role: "assistant",
+                content: fullLLMResponse.trim(),
+              });
+            }
           } catch (error) {
             console.error("Pipeline Error:", error);
           } finally {
