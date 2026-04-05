@@ -30,14 +30,18 @@ export class DeepgramSTT extends EventEmitter implements STTEngine {
 
     // We need a variable to accumulate the pieces
     let currentUtterance = "";
+    let isStreamLocked = false;
 
     live.on("open", async () => {
       console.log("🔌 Deepgram WebSocket connected. Listening...");
+
+      // If we are already iterating over the LiveKit audio, don't start a second loop!
+      if (isStreamLocked) return;
+      isStreamLocked = true;
+
       try {
         for await (const frame of audioStream) {
-          if (live.socket) {
-            // CRITICAL FIX: Convert the Int16Array safely into a Buffer.
-            // Respecting the byteOffset prevents memory leaks and corrupted audio.
+          if (live.socket && live.socket.readyState === 1) {
             const buffer = Buffer.from(
               frame.data.buffer,
               frame.data.byteOffset,

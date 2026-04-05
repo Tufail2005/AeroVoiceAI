@@ -200,11 +200,6 @@ async function startOrchestrator() {
 
             let lingeringBuffer = Buffer.alloc(0);
             const IN_BYTES_PER_FRAME = 480;
-            /* The Math: ElevenLabs sends audio at a sample rate of 24,000 samples per second (24kHz). We want to process audio in exactly 10-millisecond chunks.
-              10ms of 24,000 samples = 240 samples.
-              Because it is 16-bit audio, every sample takes up 2 bytes.
-              240 samples × 2 bytes = 480 bytes.
-           */
 
             const webrtcSink = new Writable({
               async write(chunk, encoding, callback) {
@@ -230,6 +225,7 @@ async function startOrchestrator() {
                     lingeringBuffer =
                       lingeringBuffer.subarray(IN_BYTES_PER_FRAME);
 
+                    // This prevents V8 memory misalignment which causes audio distortion!
                     const cleanBuffer = Buffer.from(frameData);
                     const int16Data24kHz = new Int16Array(
                       cleanBuffer.buffer,
@@ -241,19 +237,18 @@ async function startOrchestrator() {
                     const int16Data48kHz = new Int16Array(480);
                     for (let i = 0; i < 240; i++) {
                       const sample = int16Data24kHz[i] ?? 0;
+                      // Duplicate each sample to double the playback speed correctly
                       int16Data48kHz[i * 2] = sample;
                       int16Data48kHz[i * 2 + 1] = sample;
                     }
 
                     const frame = new AudioFrame(
                       int16Data48kHz,
-                      LIVEKIT_SAMPLE_RATE,
-                      NUM_CHANNELS,
-                      480
+                      LIVEKIT_SAMPLE_RATE, // 48000
+                      NUM_CHANNELS, // 1
+                      480 // 480 samples
                     );
 
-                    // 🔥 By awaiting this, LiveKit applies native backpressure.
-                    // If the socket is full, Node automatically pauses pulling from ElevenLabs!
                     await audioSource.captureFrame(frame);
                   }
 
