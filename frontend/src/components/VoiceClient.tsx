@@ -16,7 +16,8 @@ export default function VoiceClient() {
   useEffect(() => {
     const fetchToken = async () => {
       try {
-        const resp = await fetch("http://localhost:3001/api/token");
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+        const resp = await fetch(`${backendUrl}/api/token`);
         const data = await resp.json();
         console.log("📦 Raw API Response:", data);
 

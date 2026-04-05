@@ -37,18 +37,19 @@ async function startOrchestrator() {
   const conversationHistory: Message[] = [
     {
       role: "system",
-      content: `You are Aero, a highly capable and ultra-concise AI assistant. 
+      content: `You are a highly capable and ultra-concise AI assistant. 
         Strict Rules:
         1. Answer ONLY the exact question asked. 
         2. Provide zero additional context, background information, dates, or conversational filler.
         3. If the user asks a simple factual question,your response must be a single, direct sentence.
+        4. your response must be under line.
          Example: User: Who was the first prime minister of India?,
          Aero: Jawaharlal Nehru was the first Prime Minister of India.
-       You MUST spell out all numbers, years, and symbols exactly as they are spoken. 
-       For example, write "nineteen ninety eight" instead of "1998". 
-       Write "twenty dollars" instead of "$20". 
-       Write "one hundred percent" instead of "100%". 
-       Never use special characters like &, %, $, or #.
+        You MUST spell out all numbers, years, and symbols exactly as they are spoken. 
+        For example, write "nineteen ninety eight" instead of "1998". 
+        Write "twenty dollars" instead of "$20". 
+        Write "one hundred percent" instead of "100%". 
+        Never use special characters like &, %, $, or #.
 
           `,
     },
@@ -66,7 +67,7 @@ async function startOrchestrator() {
   // ==========================================
   // RAG INITIALIZATION (Worker Thread Setup)
   // ==========================================
-  console.log("🧠 Spinning up RAG Worker Thread...");
+
   // Dynamically determine if we are running the .ts file (dev) or .js file (prod)
   const isTsEnv = import.meta.url.endsWith(".ts");
   const workerPath = isTsEnv
@@ -139,6 +140,9 @@ async function startOrchestrator() {
         // React to completed sentences after deepgram code emit give green signal
         sttEngine.on("transcriptReady", async (userTranscript: string) => {
           if (isProcessingTurn) return;
+          // ⏱️ START THE STOPWATCH
+          // const turnStartTime = performance.now();
+          // let hasLoggedTTFA = false;
           isProcessingTurn = true;
 
           // conversationHistory.push({ role: "user", content: userTranscript });
@@ -148,20 +152,26 @@ async function startOrchestrator() {
             // ===================================
             // NON-BLOCKING RAG LOOKUP
             // ====================================
-            // We pass the text to the Worker. The main loop stays unblocked!
-            const { bestChunk, highestScore } = await queryRagWorker(
-              userTranscript
-            );
 
-            //  Silently inject the knowledge into the LLM context if it's relevant
-            // (A score of 0.3 or higher usually implies a decent semantic match)
+            const ENABLE_RAG = false; //toggle for RAG
             let promptToSend = userTranscript;
-            if (highestScore > 0.3) {
-              promptToSend = `Use the following context to answer the user if relevant: "${bestChunk}".\n\nUser Question: ${userTranscript}`;
-              console.log(
-                `\n[🔍 RAG Match Found: Score ${highestScore.toFixed(2)}]`
+
+            if (ENABLE_RAG) {
+              // We pass the text to the Worker. The main loop stays unblocked!
+              const { bestChunk, highestScore } = await queryRagWorker(
+                userTranscript
               );
+
+              //  Silently inject the knowledge into the LLM context if it's relevant
+              // (A score of 0.3 or higher usually implies a decent semantic match)
+              if (highestScore > 0.3) {
+                promptToSend = `Use the following context to answer the user if relevant: "${bestChunk}".\n\nUser Question: ${userTranscript}`;
+                console.log(
+                  `\n[🔍 RAG Match Found: Score ${highestScore.toFixed(2)}]`
+                );
+              }
             }
+
             // Push the contextualized prompt to memory (but we won't speak the hidden context out loud)
             conversationHistory.push({ role: "user", content: promptToSend });
 
@@ -190,7 +200,7 @@ async function startOrchestrator() {
 
             let lingeringBuffer = Buffer.alloc(0);
             const IN_BYTES_PER_FRAME = 480;
-            /*   The Math: ElevenLabs sends audio at a sample rate of 24,000 samples per second (24kHz). We want to process audio in exactly 10-millisecond chunks.
+            /* The Math: ElevenLabs sends audio at a sample rate of 24,000 samples per second (24kHz). We want to process audio in exactly 10-millisecond chunks.
               10ms of 24,000 samples = 240 samples.
               Because it is 16-bit audio, every sample takes up 2 bytes.
               240 samples × 2 bytes = 480 bytes.
@@ -198,6 +208,17 @@ async function startOrchestrator() {
 
             const webrtcSink = new Writable({
               async write(chunk, encoding, callback) {
+                // ⏱️ STOP THE STOPWATCH ON THE FIRST AUDIO CHUNK
+                // if (!hasLoggedTTFA) {
+                //   const ttfa = performance.now() - turnStartTime;
+                //   console.log(
+                //     `\n⚡ [TELEMETRY] Time-To-First-Audio (TTFA): ${ttfa.toFixed(
+                //       0
+                //     )} ms\n`
+                //   );
+                //   hasLoggedTTFA = true;
+                // }
+
                 lingeringBuffer = Buffer.concat([lingeringBuffer, chunk]);
 
                 try {
@@ -245,7 +266,7 @@ async function startOrchestrator() {
             });
 
             // ==========================================
-            // 4. EXECUTE THE PIPE
+            // EXECUTE THE PIPE
             // ==========================================
             // Safely push ElevenLabs data into the WebRTC Sink
             await streamPipeline(Readable.from(audioChunks), webrtcSink);

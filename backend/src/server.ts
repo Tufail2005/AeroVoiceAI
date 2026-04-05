@@ -35,4 +35,5 @@ app.get("/api/token", async (req, res) => {
   res.json({ token: jwtToken });
 });
 
-app.listen(3001, () => console.log("Token server running on port 3001"));
+const port = process.env.PORT || 3001;
+app.listen(port, () => console.log(`Token server running on port ${port}`));

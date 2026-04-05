@@ -10,7 +10,7 @@ app = FastAPI()
 
 print("🚀 Loading Faster-Whisper (base.en) into VRAM...")
 # Run on GPU, using FP16 to keep the VRAM footprint under 1GB
-model = WhisperModel("base.en", device="cuda", compute_type="float16")
+model = WhisperModel("small.en", device="cuda", compute_type="float16")
 print("✅ Model loaded successfully.")
 
 @app.websocket("/listen")
