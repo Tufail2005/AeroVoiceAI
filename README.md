@@ -18,6 +18,12 @@ AeroVoiceAI is a high-performance conversational AI system built with a **Dual-E
 
 ## 🏗️ Architecture
 
+
+<img width="2816" height="1536" alt="AeroVoiceAI Architecture" src="https://github.com/user-attachments/assets/cd654254-bfcc-4cab-bad9-ed96f6a1bc87" />
+
+
+
+
 ### 🔁 Dual-Engine Strategy
 
 | Layer | ☁️ Cloud Engine ("Honda Civic") | 🏎️ Local Engine ("Ferrari") |
