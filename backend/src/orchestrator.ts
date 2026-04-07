@@ -14,6 +14,7 @@ import {
 } from "@livekit/rtc-node";
 import { AccessToken } from "livekit-server-sdk";
 import dotenv from "dotenv";
+import { EventEmitter } from "events";
 
 // Import the Pipeline Engines
 import { chunkTextStream } from "./pipeline/TextChunker.js";
@@ -120,13 +121,13 @@ async function startOrchestrator() {
 
         // Publish the AI's voice track back to the user
         //Checks if the AI bot is fully connected to the room.
-        if (room.localParticipant) {
-          //Tells LiveKit to treat the AI's artificial audio track as if it were a standard human microphone
-          const options = new TrackPublishOptions();
-          options.source = TrackSource.SOURCE_MICROPHONE;
-          await room.localParticipant.publishTrack(aiTrack, options); //The bot immediately publishes its own "ai-voice" track back to the room so the human can hear it.
-          console.log("📢 AI Voice track published successfully.");
-        }
+        // if (room.localParticipant) {
+        //   //Tells LiveKit to treat the AI's artificial audio track as if it were a standard human microphone
+        //   const options = new TrackPublishOptions();
+        //   options.source = TrackSource.SOURCE_MICROPHONE;
+        //   await room.localParticipant.publishTrack(aiTrack, options); //The bot immediately publishes its own "ai-voice" track back to the room so the human can hear it.
+        //   console.log("📢 AI Voice track published successfully.");
+        // }
 
         // ======================================
         //                  STT
@@ -136,6 +137,9 @@ async function startOrchestrator() {
 
         // Start the continuous STT listener
         sttEngine.startListening(audioStream);
+
+        // Destroy old "ghost" listeners from previous page reloads
+        sttEngine.removeAllListeners("transcriptReady");
 
         // React to completed sentences after deepgram code emit give green signal
         sttEngine.on("transcriptReady", async (userTranscript: string) => {
@@ -316,6 +320,14 @@ async function startOrchestrator() {
   console.log(
     "✅ Orchestrator connected successfully! Waiting for user to join..."
   );
+
+  // ✅ NEW LOCATION: Publish the AI track exactly ONE time after connecting
+  if (room.localParticipant) {
+    const options = new TrackPublishOptions();
+    options.source = TrackSource.SOURCE_MICROPHONE;
+    await room.localParticipant.publishTrack(aiTrack, options);
+    console.log(`📢 AI "Mouth" attached and published successfully.`);
+  }
 }
 
 startOrchestrator().catch(console.error);

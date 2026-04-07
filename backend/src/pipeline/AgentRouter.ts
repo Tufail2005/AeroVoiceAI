@@ -18,6 +18,8 @@ export interface Message {
 export interface STTEngine {
   startListening(audioStream: AsyncIterable<any>): void;
   on(event: string, listener: (...args: any[]) => void): this;
+
+  removeAllListeners(event?: string): this;
 }
 
 // The Brain (Language Model)
