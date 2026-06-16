@@ -35,5 +35,10 @@ app.get("/api/token", async (req, res) => {
   res.json({ token: jwtToken });
 });
 
+// A simple ping endpoint to keep the server awake
+app.get("/api/health", (req, res) => {
+  res.status(200).send("Server is awake!");
+});
+
 const port = process.env.PORT || 3001;
 app.listen(port, () => console.log(`Token server running on port ${port}`));
