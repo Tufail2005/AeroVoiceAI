@@ -44,8 +44,6 @@ export default function VoiceClient() {
         if (!resp.ok) throw new Error("Failed to reach backend");
 
         const data = await resp.json();
-        console.log("📦 Raw API Response:", data);
-
         if (typeof data.token === "string") {
           setToken(data.token);
         } else if (typeof data === "string") {
