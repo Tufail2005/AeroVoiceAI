@@ -69,41 +69,51 @@ async function startOrchestrator() {
   // RAG INITIALIZATION (Worker Thread Setup)
   // ==========================================
 
-  // Dynamically determine if we are running the .ts file (dev) or .js file (prod)
-  const isTsEnv = import.meta.url.endsWith(".ts");
-  const workerPath = isTsEnv
-    ? "./pipeline/ragWorker.ts"
-    : "./pipeline/ragWorker.js";
+  // // Dynamically determine if we are running the .ts file (dev) or .js file (prod)
+  // const isTsEnv = import.meta.url.endsWith(".ts");
+  // const workerPath = isTsEnv
+  //   ? "./pipeline/ragWorker.ts"
+  //   : "./pipeline/ragWorker.js";
 
-  // If in TS environment, we must explicitly tell the new thread to use the 'tsx' loader
-  const workerOptions = isTsEnv
-    ? { execArgv: ["--experimental-strip-types", "--no-warnings"] }
-    : {};
+  // // If in TS environment, we must explicitly tell the new thread to use the 'tsx' loader
+  // const workerOptions = isTsEnv
+  //   ? { execArgv: ["--experimental-strip-types", "--no-warnings"] }
+  //   : {};
 
-  console.log("🧠 Spinning up RAG Worker Thread...");
+  // console.log("🧠 Spinning up RAG Worker Thread...");
 
-  const ragWorker = new Worker(
-    new URL(workerPath, import.meta.url),
-    workerOptions
-  );
+  // const ragWorker = new Worker(
+  //   new URL(workerPath, import.meta.url),
+  //   workerOptions
+  // );
 
-  // A helper function to wrap the worker message passing in a Promise
-  const queryRagWorker = (
+  // // A helper function to wrap the worker message passing in a Promise
+  // const queryRagWorker = (
+  //   text: string
+  // ): Promise<{ bestChunk: string; highestScore: number }> => {
+  //   return new Promise((resolve, reject) => {
+  //     const onMessage = (msg: any) => {
+  //       if (msg.type === "RESULT") {
+  //         ragWorker.off("message", onMessage);
+  //         resolve({ bestChunk: msg.bestChunk, highestScore: msg.highestScore });
+  //       } else if (msg.type === "ERROR") {
+  //         ragWorker.off("message", onMessage);
+  //         reject(msg.error);
+  //       }
+  //     };
+  //     ragWorker.on("message", onMessage);
+  //     ragWorker.postMessage({ type: "QUERY", text });
+  //   });
+  // };
+
+  console.log("🧠 Skipping RAG Worker Thread for Demo Mode...");
+
+  // We leave this dummy function here so TypeScript compiles perfectly,
+  // but it will never be called since ENABLE_RAG is set to false below.
+  const queryRagWorker = async (
     text: string
   ): Promise<{ bestChunk: string; highestScore: number }> => {
-    return new Promise((resolve, reject) => {
-      const onMessage = (msg: any) => {
-        if (msg.type === "RESULT") {
-          ragWorker.off("message", onMessage);
-          resolve({ bestChunk: msg.bestChunk, highestScore: msg.highestScore });
-        } else if (msg.type === "ERROR") {
-          ragWorker.off("message", onMessage);
-          reject(msg.error);
-        }
-      };
-      ragWorker.on("message", onMessage);
-      ragWorker.postMessage({ type: "QUERY", text });
-    });
+    return { bestChunk: "", highestScore: 0 };
   };
 
   // ==========================================
