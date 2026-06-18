@@ -22,7 +22,7 @@ export class DeepgramSTT extends EventEmitter implements STTEngine {
       interim_results: "true",
       endpointing: "300",
       utterance_end_ms: "1000",
-    });
+    } as any);
 
     let currentUtterance = "";
     let isStreamLocked = false;
@@ -35,14 +35,14 @@ export class DeepgramSTT extends EventEmitter implements STTEngine {
 
       try {
         for await (const frame of audioStream) {
-          const buffer = Buffer.from(
-            frame.data.buffer,
-            frame.data.byteOffset,
-            frame.data.byteLength
-          );
-
           const liveSocket = (live as any).socket;
           if (liveSocket && liveSocket.readyState === 1) {
+            const buffer = Buffer.from(
+              frame.data.buffer,
+              frame.data.byteOffset,
+              frame.data.byteLength
+            );
+
             liveSocket.send(buffer);
           }
         }
@@ -51,26 +51,38 @@ export class DeepgramSTT extends EventEmitter implements STTEngine {
       }
     });
 
-    live.on("message", (data: any) => {
-      if (data.type === "Results") {
-        const words = data.channel.alternatives[0].transcript;
+    live.on("message", (rawData: any) => {
+      // Safely ensure it's an object
+      let data = rawData;
+      if (Buffer.isBuffer(rawData)) {
+        data = JSON.parse(rawData.toString());
+      } else if (typeof rawData === "string") {
+        data = JSON.parse(rawData);
+      }
 
-        if (words) {
-          if (data.is_final) {
-            currentUtterance += words + " ";
-            console.log(`\n🧩 Chunk locked: "${words}"`);
-          } else {
-            process.stdout.write(`\r🗣️ Hearing: "${currentUtterance}${words}"`);
-          }
+      // Safely dig into the object to find the words
+      const words = data?.channel?.alternatives?.[0]?.transcript;
+
+      // 1. Handle incoming words
+      if (words) {
+        if (data.is_final) {
+          currentUtterance += words + " ";
+          console.log(`\n🧩 Chunk locked: "${words}"`);
+        } else {
+          process.stdout.write(`\r🗣️ Hearing: "${currentUtterance}${words}"`);
         }
       }
 
-      if (data.type === "UtteranceEnd") {
+      // 2. Handle the End of Turn trigger
+      if (data?.type === "UtteranceEnd") {
         if (currentUtterance.trim().length > 0) {
           console.log(
             `\n✅ Full User Turn Detected: "${currentUtterance.trim()}"`
           );
+
+          // Emit the event to wake up the Orchestrator
           this.emit("transcriptReady", currentUtterance.trim());
+
           currentUtterance = "";
         }
       }
@@ -79,5 +91,11 @@ export class DeepgramSTT extends EventEmitter implements STTEngine {
     live.on("error", (err: any) => {
       console.error("Deepgram error:", err);
     });
+
+    try {
+      live.connect();
+    } catch (err) {
+      console.error("❌ Failed to connect Deepgram WebSocket:", err);
+    }
   }
 }

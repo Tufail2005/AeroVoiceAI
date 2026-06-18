@@ -12,7 +12,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@deepgram/sdk": "^5.0.0",
+    "@deepgram/sdk": "^5.4.0",
     "@livekit/rtc-node": "^0.13.24",
     "@prisma/adapter-pg": "^7.5.0",
     "@prisma/client": "^7.5.0",
