@@ -1,44 +1,28 @@
 import express from "express";
-
-import { AccessToken } from "livekit-server-sdk"; // Import to handle token generation
+import { createServer } from "http";
+import { WebSocketServer } from "ws";
 import dotenv from "dotenv";
 import cors from "cors";
+import { startOrchestrator } from "./orchestrator.js"; 
 
-dotenv.config(); // Parse the .env file
+dotenv.config();
 
 const app = express();
 app.use(cors());
-
-app.get("/api/token", async (req, res) => {
-  // Generate a random username, like "user-482"
-  const participantName = `user-${Math.floor(Math.random() * 1000)}`;
-  // Set a hardcoded room name that everyone hitting this endpoint will join
-  const roomName = "aerovoice-room";
-
-  // Initialize a new LiveKit access token object using credentials from the .env file
-  const at = new AccessToken(
-    process.env.LIVEKIT_API_KEY,
-    process.env.LIVEKIT_API_SECRET,
-    { identity: participantName }
-  );
-
-  // Define the exact permissions tied to this specific token
-  at.addGrant({
-    roomJoin: true, // Permission to join a room
-    room: roomName, // The specific room they are allowed to join
-    canPublish: true, // Permission to send their own microphone/camera data
-    canSubscribe: true, // Permission to hear/see other people in the room
-  });
-
-  const jwtToken = await at.toJwt();
-  // Convert the configured token object into a signed JWT string and send it to the client as JSON
-  res.json({ token: jwtToken });
-});
 
 // A simple ping endpoint to keep the server awake
 app.get("/api/health", (req, res) => {
   res.status(200).send("Server is awake!");
 });
 
+// 1. Create a raw HTTP server from the Express app
+const server = createServer(app);
+
+// 2. Attach the WebSocket server to it
+const wss = new WebSocketServer({ server });
+
+// 3. Hand the WebSocket server over to your Orchestrator
+startOrchestrator(wss);
+
 const port = process.env.PORT || 3001;
-app.listen(port, () => console.log(`Token server running on port ${port}`));
+server.listen(port, () => console.log(`🚀 Server & WebSocket running on port ${port}`));
