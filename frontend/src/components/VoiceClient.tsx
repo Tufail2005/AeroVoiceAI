@@ -22,35 +22,32 @@ export default function VoiceClient() {
   const [isConnected, setIsConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
 
-  // References to hold our native browser APIs
   const socketRef = useRef<WebSocket | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
   const nextPlayTimeRef = useRef<number>(0);
 
-  // Connect directly to the WebSocket and Microphone
   const connect = async () => {
     setIsConnecting(true);
 
     try {
-      // 1. Get the microphone stream with native echo cancellation!
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
+          sampleRate: 48000,
         },
       });
       streamRef.current = stream;
 
-      // 2. Set up AudioContext for playing AI responses
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      audioContextRef.current = new AudioContextClass();
-      nextPlayTimeRef.current = audioContextRef.current.currentTime;
+      const audioCtx = new AudioContextClass({ sampleRate: 48000 });
+      audioContextRef.current = audioCtx;
+      nextPlayTimeRef.current = audioCtx.currentTime;
 
-      // 3. Connect WebSocket to Render backend
-      // Automatically swaps http:// for ws:// or https:// for wss://
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
       const wsUrl = backendUrl.replace(/^http/, "ws");
       const socket = new WebSocket(wsUrl);
@@ -58,26 +55,39 @@ export default function VoiceClient() {
 
       socket.onopen = () => {
         setIsConnected(true);
-        console.log("✅ WebSocket Connected to Render!");
+        console.log("✅ WebSocket Connected!");
 
-        // 4. Start recording and sending audio chunks every 250ms
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
+        const source = audioCtx.createMediaStreamSource(stream);
+        const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+        processorRef.current = processor;
 
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
-            socket.send(event.data);
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.value = 0;
+        gainNodeRef.current = gainNode;
+
+        processor.onaudioprocess = (e) => {
+          if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+          if (isMuted) return;
+
+          const inputData = e.inputBuffer.getChannelData(0);
+          const int16Data = new Int16Array(inputData.length);
+          for (let i = 0; i < inputData.length; i++) {
+            const s = Math.max(-1, Math.min(1, inputData[i]));
+            int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
           }
+
+          socketRef.current.send(int16Data.buffer);
         };
 
-        mediaRecorder.start(250);
+        source.connect(processor);
+        processor.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
       };
 
       socket.onmessage = async (event) => {
-        // 5. Receive Audio from AI and play it instantly
         if (event.data instanceof Blob) {
           const arrayBuffer = await event.data.arrayBuffer();
-          playAudioChunk(arrayBuffer);
+          playRawPCMChunk(arrayBuffer);
         }
       };
 
@@ -91,18 +101,28 @@ export default function VoiceClient() {
     }
   };
 
-  // A queuing system to make sure the AI sentences play seamlessly in order
-  const playAudioChunk = async (arrayBuffer: ArrayBuffer) => {
+  // 🛡️ FIXED: Parse raw PCM linear16 bytes directly into an AudioBuffer
+  const playRawPCMChunk = (arrayBuffer: ArrayBuffer) => {
     const audioCtx = audioContextRef.current;
-    if (!audioCtx) return;
+    if (!audioCtx || audioCtx.state === "closed") return;
 
     try {
-      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      const int16Data = new Int16Array(arrayBuffer);
+      const float32Data = new Float32Array(int16Data.length);
+      for (let i = 0; i < int16Data.length; i++) {
+        float32Data[i] = int16Data[i] / 32768.0; // Normalize to -1.0 -> 1.0
+      }
+
+      // Deepgram TTS default output sample rate is 24000Hz. 
+      // Web Audio API automatically resamples this to match your 48000Hz context.
+      const sampleRate = 24000;
+      const audioBuffer = audioCtx.createBuffer(1, float32Data.length, sampleRate);
+      audioBuffer.copyToChannel(float32Data, 0);
+
       const source = audioCtx.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(audioCtx.destination);
 
-      // Schedule audio to play sequentially without overlapping
       const currentTime = audioCtx.currentTime;
       if (nextPlayTimeRef.current < currentTime) {
         nextPlayTimeRef.current = currentTime;
@@ -111,24 +131,20 @@ export default function VoiceClient() {
       source.start(nextPlayTimeRef.current);
       nextPlayTimeRef.current += audioBuffer.duration;
     } catch (error) {
-      console.error("Error decoding AI audio:", error);
+      console.error("Error playing raw PCM chunk:", error);
     }
   };
 
   const toggleMute = () => {
-    if (streamRef.current) {
-      const audioTrack = streamRef.current.getAudioTracks()[0];
-      audioTrack.enabled = !audioTrack.enabled;
-      setIsMuted(!audioTrack.enabled);
-    }
+    setIsMuted((prev) => !prev);
   };
 
   const disconnect = () => {
     setIsConnecting(false);
     setIsConnected(false);
 
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
+    if (processorRef.current) {
+      processorRef.current.disconnect();
     }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
@@ -136,17 +152,15 @@ export default function VoiceClient() {
     if (socketRef.current) {
       socketRef.current.close();
     }
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
+    if (audioContextRef.current && audioContextRef.current.state !== "closed") {
+      audioContextRef.current.close().catch(() => {});
     }
   };
 
-  // Cleanup to prevent ghost connections on unmount
   useEffect(() => {
     return () => disconnect();
   }, []);
 
-  // --- The Pre-Join Screen ---
   if (!isConnecting) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gray-950 text-white font-mono">
@@ -168,14 +182,12 @@ export default function VoiceClient() {
     );
   }
 
-  // --- The Active Room ---
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-gray-950 text-white">
       <h1 className="text-3xl font-bold mb-2">AeroVoiceAI Edge Layer</h1>
 
       <ConnectionStatus isConnected={isConnected} />
 
-      {/* Custom Audio-Only Control Bar */}
       <div className="bg-gray-900/80 backdrop-blur-sm border border-gray-800 p-4 rounded-2xl shadow-xl flex gap-4 mt-4">
         <button
           onClick={toggleMute}
