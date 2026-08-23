@@ -16,11 +16,11 @@ export class GroqLLM implements LLMEngine {
     console.log("🧠 Brain thinking...");
 
     const stream = await this.client.chat.completions.create({
-      model: "qwen/qwen3.6-27b", // Groq's identifier for Llama 3 8B
+      model: "openai/gpt-oss-20b", 
       messages: history,
       stream: true, // This must be true for low latency!
       temperature: 0.5, // Keep it relatively deterministic
-      max_tokens: 256, // Keep responses short and conversational
+      max_completion_tokens: 256, // Keep responses short and conversational
     });
 
     for await (const chunk of stream) {
